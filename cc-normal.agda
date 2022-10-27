@@ -171,10 +171,7 @@ x ∈ ρ EL (inj₁ A) = (x ≡ Val A ρ)
 
 empty : Subst
 
-example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty (EL cc-Kind)
-example1 = Data.Unit.Base.tt
-
-example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty (EL cc-Kind)
+example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty EL cc-Kind
 example1 = Data.Unit.Base.tt
 
 -------
