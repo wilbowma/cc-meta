@@ -1,6 +1,10 @@
 open import Level using (Level; suc)
 open import Data.Nat using (ℕ)
-open import Agda.Builtin.Equality using (_≡_) renaming (refl to base-refl)
+open import Agda.Builtin.Equality using (_≡_) renaming
+  (refl to base-refl)
+open import Relation.Binary.PropositionalEquality.Core using () renaming
+  (sym to base-sym;
+   trans to base-trans)
 open import Data.Sum.Base
 open import Data.Unit.Base using (⊤)
 
@@ -180,3 +184,22 @@ module Construction (model : Abstract_CC_Model) where
 -- (small set, not Coq's Set).
 -- I guess I could do that, if I wanted to formalize set theory?
 -- I'd need only some of the axioms, I think...
+
+-- I'm going to construct the initial model: instantiate the abstract model with
+-- the syntax.
+
+module initial_cc_model where
+  open Abstract_CC_Model {{...}}
+  instance
+    EquivCC_Type : Equiv CC_Type
+    _==_ {{EquivCC_Type}} = _≡_
+    refl {{EquivCC_Type}} = λ x -> base-refl {x = x}
+    sym {{EquivCC_Type}} = λ x y -> base-sym {x = x} {y = y}
+    trans {{EquivCC_Type}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+
+  instance
+    InitialCC : Abstract_CC_Model
+    X {{InitialCC}} = CC_Term
+    props {{InitialCC}} = cc-Prop
+    -- Ahhh; distinction between open term in the syntax and closed terms in the model.
+    lam {{InitialCC}} = λ x y -> cc-lam ? ?
