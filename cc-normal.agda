@@ -112,10 +112,6 @@ record Abstract_CC_Model : Set₁ where
       ----------
       f == (lam A (λ x -> (app f x)))
 
--- Now, we prove stuff about the model?
-
--- Can now freely refer to X, etc, as the parameters of an arbirary model.
-open Abstract_CC_Model {{...}}
 
 -- The syntax of CC
 
@@ -148,31 +144,35 @@ CC_Type = CC_Term ⊎ CC_Kind
 cc-Kind : CC_Type
 cc-Kind = inj₂ cc-preKind
 
--- A substitution
-Subst = {{SomeModel : Abstract_CC_Model}} -> (ℕ -> X)
-SCons :{{SomeModel : Abstract_CC_Model}} -> X -> Subst -> Subst
+-- Now, we prove stuff about any model
+module Construction (model : Abstract_CC_Model) where
+  -- Can now freely refer to X, etc, as the parameters of an arbirary model.
+  open Abstract_CC_Model (model)
+  -- A substitution
+  Subst = (ℕ -> X)
+  SCons : X -> Subst -> Subst
 
--- The value interpretation of CC Syntax into some CC Model
-Val : {{SomeModel : Abstract_CC_Model}} -> CC_Term -> Subst -> X
-Val cc-Prop ρ = props
-Val (var x) ρ = ρ x
-Val (cc-app M N) ρ = app (Val M ρ) (Val N ρ)
-Val (cc-lam A M) ρ = lam (Val A ρ) (λ x -> (Val M) (SCons x ρ))
-Val (cc-Pi A B) ρ = Pi (Val A ρ) (λ x -> (Val B) (SCons x ρ))
+  -- The value interpretation of CC Syntax into some CC Model
+  Val : CC_Term -> Subst -> X
+  Val cc-Prop ρ = props
+  Val (var x) ρ = ρ x
+  Val (cc-app M N) ρ = app (Val M ρ) (Val N ρ)
+  Val (cc-lam A M) ρ = lam (Val A ρ) (λ x -> (Val M) (SCons x ρ))
+  Val (cc-Pi A B) ρ = Pi (Val A ρ) (λ x -> (Val B) (SCons x ρ))
 
-El : {{SomeModel : Abstract_CC_Model}} -> (T : CC_Type) -> Subst -> X ⊎ (T ≡ cc-Kind)
-El (inj₂ cc-preKind) ρ = inj₂ base-refl
-El (inj₁ x) ρ = inj₁ (Val x ρ)
+  El : (T : CC_Type) -> Subst -> X ⊎ (T ≡ cc-Kind)
+  El (inj₂ cc-preKind) ρ = inj₂ base-refl
+  El (inj₁ x) ρ = inj₁ (Val x ρ)
 
--- A different way of writing El, which might be easier to read and write.
-_∈_EL_ : {{SomeModel : Abstract_CC_Model}} -> X -> Subst -> CC_Type -> Set
-x ∈ ρ EL (inj₂ cc-preKind) = ⊤
-x ∈ ρ EL (inj₁ A) = (x ≡ Val A ρ)
+  -- A different way of writing El, which might be easier to read and write.
+  _∈_EL_ : X -> Subst -> CC_Type -> Set
+  x ∈ ρ EL (inj₂ cc-preKind) = ⊤
+  x ∈ ρ EL (inj₁ A) = (x ≡ Val A ρ)
 
-empty : Subst
+  empty : Subst
 
-example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty EL cc-Kind
-example1 = Data.Unit.Base.tt
+  example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty EL cc-Kind
+  example1 = Data.Unit.Base.tt
 
 -------
 -- A particular model exists.
