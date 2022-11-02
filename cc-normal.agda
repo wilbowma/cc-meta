@@ -232,6 +232,13 @@ module Construction (model : Abstract_CC_Model) where
 module initial_cc_model where
   open Abstract_CC_Model {{...}}
   instance
+    EquivCC_Term : Equiv CC_Term
+    _==_ {{EquivCC_Term}} = _≡_
+    refl {{EquivCC_Term}} = λ x -> base-refl {x = x}
+    sym {{EquivCC_Term}} = λ x y -> base-sym {x = x} {y = y}
+    trans {{EquivCC_Term}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+
+  instance
     EquivCC_Type : Equiv CC_Type
     _==_ {{EquivCC_Type}} = _≡_
     refl {{EquivCC_Type}} = λ x -> base-refl {x = x}
@@ -240,7 +247,14 @@ module initial_cc_model where
 
   instance
     InitialCC : Abstract_CC_Model
+    -- Think this can't work... because ∈ needs to be a relation between Xs, and
+    -- ∈ needs to be _⊢_::_, which is a relation between CC_Type and CC_Type...
+    -- soo.. something needs to change.
     X {{InitialCC}} = CC_Term
     props {{InitialCC}} = cc-Prop
     -- Ahhh; distinction between open term in the syntax and closed terms in the model.
-    lam {{InitialCC}} = λ x y -> cc-lam ? ?
+    -- Okay, I guess.. reflect, in NbE terms?. Apply the function to the 0th
+    -- variable. Do we need to relocate?
+    lam {{InitialCC}} = λ A f -> cc-lam A (f (var 0))
+    Pi {{InitialCC}} = λ A F -> cc-Pi A (F (var 0))
+    Pi-I {{InitialCC}} = λ dA df -> {!!} rule-Lam {Γ = cempty} {!!}
