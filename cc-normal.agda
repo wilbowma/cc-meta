@@ -1,5 +1,5 @@
 open import Level using (Level; suc)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _+_; zero; _<_) renaming (suc to add1)
 open import Agda.Builtin.Equality using (_≡_) renaming
   (refl to base-refl)
 open import Relation.Binary.PropositionalEquality.Core using () renaming
@@ -7,6 +7,7 @@ open import Relation.Binary.PropositionalEquality.Core using () renaming
    trans to base-trans)
 open import Data.Sum.Base
 open import Data.Unit.Base using (⊤)
+open import Relation.Nullary using (¬_)
 
 record Equiv {a} (A : Set a) : Set (suc a) where
   field
@@ -132,6 +133,8 @@ data CC_Term : Set where
   -- TODO:
   -- Looks like the syntax, Figure 5.2, includes explicit syntax for subst and
   -- relocation. Need to add those
+  relocate : (by : ℕ) -> (term : CC_Term) -> CC_Term
+  subst : (by : CC_Term) -> (M : CC_Term) -> CC_Term
 
 -- CC Types also include "Kind".
 -- Represent the syntax of types as either a term or Kind.
@@ -148,13 +151,39 @@ CC_Type = CC_Term ⊎ CC_Kind
 cc-Kind : CC_Type
 cc-Kind = inj₂ cc-preKind
 
+data Ctx : ℕ -> Set where
+  cempty : Ctx 0
+  snoc : ∀ {n} -> Ctx n -> CC_Term -> Ctx (add1 n)
+
+lookup : ∀ {n} -> Ctx n -> (m : ℕ) -> m < n -> CC_Term
+lookup cempty n ()
+lookup (snoc Γ x) zero p = x
+lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
+
+data _⊢_::_ : ∀ {n} -> Ctx n -> CC_Term -> CC_Type -> Set where
+  rule-Prop : ∀ {n} {Γ : Ctx n} -> Γ ⊢ cc-Prop :: cc-Kind
+  rule-Var : ∀ {n m p A} {Γ : Ctx m} ->
+    (lookup Γ n p) ≡ A ->
+    ------------------
+    Γ ⊢ (var n) :: (inj₁ (relocate (n + 1) A))
+
+  rule-Lam : ∀ {n A Γ M B} ->
+    (snoc {n} Γ A) ⊢ M :: (inj₁ B) ->
+    -- implicit
+    -- ¬ (B ≡ cc-Kind) ->
+    ------------------
+    Γ ⊢ (cc-lam A M) :: (inj₁ (cc-Pi A B))
+
 -- Now, we prove stuff about any model
 module Construction (model : Abstract_CC_Model) where
   -- Can now freely refer to X, etc, as the parameters of an arbirary model.
   open Abstract_CC_Model (model)
   -- A substitution
   Subst = (ℕ -> X)
+  -- Is this right?
   SCons : X -> Subst -> Subst
+  SCons X ρ zero = X
+  SCons X ρ (add1 n) = ρ n
 
   -- The value interpretation of CC Syntax into some CC Model
   Val : CC_Term -> Subst -> X
@@ -163,6 +192,18 @@ module Construction (model : Abstract_CC_Model) where
   Val (cc-app M N) ρ = app (Val M ρ) (Val N ρ)
   Val (cc-lam A M) ρ = lam (Val A ρ) (λ x -> (Val M) (SCons x ρ))
   Val (cc-Pi A B) ρ = Pi (Val A ρ) (λ x -> (Val B) (SCons x ρ))
+  Val (relocate n M) ρ = Val M (λ i -> (ρ (i + n)))
+  Val (subst by M) ρ = Val M (SCons (Val by ρ) ρ)
+
+  -- compositionality properties of Val
+  prop1 : ∀ {n ρ} -> Val (relocate 1 (var n)) ρ ≡ (Val (var (n + 1)) ρ)
+  prop1 = base-refl
+
+  prop2 : ∀ {M ρ} -> Val (subst M (var 0)) ρ ≡ (Val M ρ)
+  prop2 = base-refl
+
+  prop3 : ∀ {M ρ n} -> Val (subst M (var (add1 n))) ρ ≡ (Val (var n) ρ)
+  prop3 = base-refl
 
   El : (T : CC_Type) -> Subst -> X ⊎ (T ≡ cc-Kind)
   El (inj₂ cc-preKind) ρ = inj₂ base-refl
