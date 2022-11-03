@@ -222,6 +222,11 @@ module Construction (model : Abstract_CC_Model) where
   _⊨_ : ∀ {m} -> Ctx {m} -> Subst -> Set
   _⊨_ {m = m} Γ ρ = ∀ n -> (pf : n < m) -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (lookup Γ n pf))
 
+  emptyOK : ∀ {ρ} -> cempty ⊨ ρ
+  emptyOK = {!!}
+
+  empty : Subst
+
   -- TODO Seems obvious; requires tedious reasoning about binding it seems.
   extend-⊨ : ∀ {n ρ x A} {Γ : Ctx {n}}->
     Γ ⊨ ρ ->
@@ -268,6 +273,24 @@ module Construction (model : Abstract_CC_Model) where
     Γ ⊢ (cc-app M N) :: (cc-subst N B)
   rule-App {A = inj₁ x} IH1 IH2 H ρ ρvalid = Pi-E (IH1 ρ ρvalid) (IH2 ρ ρvalid)
   rule-App {A = inj₂ cc-preKind} IH1 IH2 H ρ ρvalid = ⊥-elim (H base-refl)
+
+  -- Missing conv, other judgments... lets try structure consistency
+
+  cc-False : Term
+  cc-False = cc-Pi cc-Prop (cc-var 0)
+
+  Consistency : ∀ M F ->
+    -- if there exists an empty term in the model
+    F ∈ props -> (∀ x -> ¬ (x ∈ F)) ->
+    -- there is no closed proof of cc-False
+    ¬ (cempty ⊢ M :: cc-False)
+  Consistency M F False-∈-empty False-empty False-well-typed =
+    ⊥-elim ((False-empty (app (Val M empty) F)) (Pi-E (False-well-typed empty (λ n ())) False-∈-empty))
+
+  -- Consistency... holds. even without all the judgments defined.
+  -- But we've yet to prove that this construction is sound, in the sense that
+  -- it implements all of CCs typing rules.
+  -- We also haven't proved that there exists any instances of this model.
 
 
 -- This approach.. seems hhard. need to specify some kind of environment
