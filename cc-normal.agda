@@ -133,9 +133,9 @@ module Construction (model : Abstract_CC_Model) where
   -- A substitution
   Subst = (ℕ -> X)
   -- Is this right?
-  SCons : X -> Subst -> Subst
-  SCons X ρ zero = X
-  SCons X ρ (add1 n) = ρ n
+  extend-subst : Subst -> X -> Subst
+  extend-subst ρ X zero = X
+  extend-subst ρ X (add1 n) = ρ n
 
   data CC_Kind : Set where
     cc-preKind : CC_Kind
@@ -184,7 +184,7 @@ module Construction (model : Abstract_CC_Model) where
 
   -- an abstract binding-term-constructor
   cc-bind : (X -> (X -> X) -> X) -> Term -> Term -> Term
-  cc-bind bind A B = inj₁ (λ ρ -> bind (Val A ρ) (λ x -> Val B (SCons x ρ)))
+  cc-bind bind A B = inj₁ (λ ρ -> bind (Val A ρ) (λ x -> Val B (extend-subst ρ x)))
 
   cc-lam : Term -> Term -> Term
   cc-lam = cc-bind lam
@@ -196,7 +196,7 @@ module Construction (model : Abstract_CC_Model) where
   cc-relocate n M = inj₁ (λ ρ -> Val M (λ i -> (ρ (n + i))))
 
   cc-subst : Term -> Term -> Term
-  cc-subst by M = inj₁ (λ ρ -> Val M (SCons (Val by ρ) ρ))
+  cc-subst by M = inj₁ (λ ρ -> Val M (extend-subst ρ (Val by ρ)))
 
   -- compositionality properties of Val
   prop1 : ∀ {n ρ} -> Val (cc-relocate 1 (cc-var n)) ρ ≡ (Val (cc-var (1 + n)) ρ)
@@ -209,6 +209,7 @@ module Construction (model : Abstract_CC_Model) where
   prop3 = base-refl
 
   -- Typing
+  -- TODO Could abstract to combine Subst above.
   Ctx = (ℕ -> Term)
   -- Is this right?
   extend-ctx : Ctx -> Term -> Ctx
@@ -218,16 +219,22 @@ module Construction (model : Abstract_CC_Model) where
   _⊨_ : Ctx -> Subst -> Set
   _⊨_ Γ ρ = ∀ n -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (Γ n))
 
-  cempty : Ctx
-  empty : Subst
-  emptyOK : cempty ⊨ empty
+  -- TODO: Inelegant. Bruno's development create a nil Subst that always returns
+  -- props, and then uses lists for Ctx instead of doing the same trick?
+  -- really, we want partial maps with an apply operation that returns the term
+  -- unchanged in the "empty" case?
+  -- Or perhaps well-scoped to eliminate the empty case.
+  -- This works well enough for now.
+  postulate
+    cempty : Ctx
+    empty : Subst
+    emptyOK : cempty ⊨ empty
 
-  -- TODO Seems obvious; requires tedious reasoning about binding it seems.
   extend-⊨ : ∀ {ρ x A Γ}->
     Γ ⊨ ρ ->
     x ∈ Val A ρ ->
     ------------------
-    extend-ctx Γ A ⊨ SCons x ρ
+    extend-ctx Γ A ⊨ extend-subst ρ x
   extend-⊨ IH x-ok zero = x-ok
   extend-⊨ IH x-ok (add1 n) = IH n
 
@@ -254,7 +261,7 @@ module Construction (model : Abstract_CC_Model) where
     ¬ (B ≡ cc-Kind) ->
     ------------------
     Γ ⊢ (cc-lam A M) :: (cc-Pi A B)
-  rule-Lam {B = inj₁ B} = λ IH _ ρ ρvalid → Pi-I λ {x} xD → (IH (SCons x ρ) (extend-⊨ ρvalid xD))
+  rule-Lam {B = inj₁ B} = λ IH _ ρ ρvalid → Pi-I λ {x} xD → (IH (extend-subst ρ x) (extend-⊨ ρvalid xD))
   rule-Lam {B = inj₂ cc-preKind} IH H = ⊥-elim (H base-refl)
 
 
