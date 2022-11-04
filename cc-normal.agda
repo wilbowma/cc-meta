@@ -193,13 +193,13 @@ module Construction (model : Abstract_CC_Model) where
   cc-Pi = cc-bind Pi
 
   cc-relocate : ℕ -> Term -> Term
-  cc-relocate n M = inj₁ (λ ρ -> Val M (λ i -> (ρ (i + n))))
+  cc-relocate n M = inj₁ (λ ρ -> Val M (λ i -> (ρ (n + i))))
 
   cc-subst : Term -> Term -> Term
   cc-subst by M = inj₁ (λ ρ -> Val M (SCons (Val by ρ) ρ))
 
   -- compositionality properties of Val
-  prop1 : ∀ {n ρ} -> Val (cc-relocate 1 (cc-var n)) ρ ≡ (Val (cc-var (n + 1)) ρ)
+  prop1 : ∀ {n ρ} -> Val (cc-relocate 1 (cc-var n)) ρ ≡ (Val (cc-var (1 + n)) ρ)
   prop1 = base-refl
 
   prop2 : ∀ {M ρ} -> Val (cc-subst M (cc-var 0)) ρ ≡ (Val M ρ)
@@ -209,55 +209,48 @@ module Construction (model : Abstract_CC_Model) where
   prop3 = base-refl
 
   -- Typing
-  -- TODO: Could abstract w.r.t scope, to avoid tying to de Bruijn
-  data Ctx : {ℕ} -> Set where
-    cempty : Ctx {0}
-    snoc : ∀ {n} -> Ctx {n} -> Term -> Ctx {(add1 n)}
+  Ctx = (ℕ -> Term)
+  -- Is this right?
+  extend-ctx : Ctx -> Term -> Ctx
+  extend-ctx Γ x zero = x
+  extend-ctx Γ x (add1 n) = Γ n
 
-  lookup : ∀ {n} -> Ctx {n} -> (m : ℕ) -> m < n -> Term
-  lookup cempty n ()
-  lookup (snoc Γ x) zero p = x
-  lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
+  _⊨_ : Ctx -> Subst -> Set
+  _⊨_ Γ ρ = ∀ n -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (Γ n))
 
-  _⊨_ : ∀ {m} -> Ctx {m} -> Subst -> Set
-  _⊨_ {m = m} Γ ρ = ∀ n -> (pf : n < m) -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (lookup Γ n pf))
-
-  emptyOK : ∀ {ρ} -> cempty ⊨ ρ
-  emptyOK = {!!}
-
+  cempty : Ctx
   empty : Subst
+  emptyOK : cempty ⊨ empty
 
   -- TODO Seems obvious; requires tedious reasoning about binding it seems.
-  extend-⊨ : ∀ {n ρ x A} {Γ : Ctx {n}}->
+  extend-⊨ : ∀ {ρ x A Γ}->
     Γ ⊨ ρ ->
     x ∈ Val A ρ ->
     ------------------
-    snoc Γ A ⊨ SCons x ρ
-  extend-⊨ = {!!}
-
+    extend-ctx Γ A ⊨ SCons x ρ
+  extend-⊨ IH x-ok zero = x-ok
+  extend-⊨ IH x-ok (add1 n) = IH n
 
   -- The typing judgment is *defined* as the Val interpretation being in El
-  _⊢_::_ : ∀ {n} -> Ctx {n} -> Term -> Term -> Set
+  _⊢_::_ : Ctx -> Term -> Term -> Set
   Γ ⊢ M :: A = ∀ ρ -> Γ ⊨ ρ -> (Val M ρ) ∈ ρ El A
-
 
   -- These lemmas have the same type as the type you'd give in an inductive
   -- definition. But they're lemmas about the shallow embedding parameterized
   -- over a model, rather than a deep embedding of the rules that could be
   -- transformed into any particular model.
-  rule-Prop : ∀ {n} {Γ : Ctx {n}} ->
+  rule-Prop : ∀ {Γ} ->
     Γ ⊢ cc-Prop :: cc-Kind
   -- autocompleted
   rule-Prop = λ ρ _ → tt
 
-  rule-Var : ∀ {n m p} {Γ : Ctx {m}} ->
-    Γ ⊢ (cc-var n) :: (cc-relocate (add1 n) (lookup Γ n p))
+  rule-Var : ∀ {n Γ} ->
+    Γ ⊢ (cc-var n) :: (cc-relocate (add1 n) (Γ n))
   -- autocompleted, but needed to add implicits
-  rule-Var {n = n} {p = p} = λ ρ z → z n p
+  rule-Var {n = n} = λ ρ x → (x n)
 
-
-  rule-Lam : ∀ {n A Γ M B} ->
-    (snoc {n} Γ A) ⊢ M :: B ->
+  rule-Lam : ∀ {A Γ M B} ->
+    (extend-ctx Γ A) ⊢ M :: B ->
     ¬ (B ≡ cc-Kind) ->
     ------------------
     Γ ⊢ (cc-lam A M) :: (cc-Pi A B)
@@ -265,7 +258,7 @@ module Construction (model : Abstract_CC_Model) where
   rule-Lam {B = inj₂ cc-preKind} IH H = ⊥-elim (H base-refl)
 
 
-  rule-App : ∀ {n M N A B} {Γ : Ctx {n}} ->
+  rule-App : ∀ {M N A B Γ} ->
     Γ ⊢ M :: (cc-Pi A B) ->
     Γ ⊢ N :: A ->
     ¬ (A ≡ cc-Kind) ->
@@ -285,7 +278,7 @@ module Construction (model : Abstract_CC_Model) where
     -- there is no closed proof of cc-False
     ¬ (cempty ⊢ M :: cc-False)
   Consistency M F False-∈-empty False-empty False-well-typed =
-    ⊥-elim ((False-empty (app (Val M empty) F)) (Pi-E (False-well-typed empty (λ n ())) False-∈-empty))
+    ⊥-elim ((False-empty (app (Val M empty) F)) (Pi-E (False-well-typed empty emptyOK) False-∈-empty))
 
   -- Consistency... holds. even without all the judgments defined.
   -- But we've yet to prove that this construction is sound, in the sense that
