@@ -131,19 +131,20 @@ module Construction (model : Abstract_CC_Model) where
   -- Can now freely refer to X, etc, as the parameters of an arbirary model.
   open Abstract_CC_Model (model)
   -- A substitution
-  Subst = (ℕ -> X)
+  Subst : {Set} -> Set
+  Subst {X} = (ℕ -> X)
   -- Is this right?
-  extend-subst : Subst -> X -> Subst
+  extend-subst : ∀ {X} -> Subst {X} -> X -> Subst {X}
   extend-subst ρ X zero = X
   extend-subst ρ X (add1 n) = ρ n
 
-  relocate : Subst -> ℕ -> Subst
+  relocate : ∀ {X} -> Subst {X} -> ℕ -> Subst {X}
   relocate ρ n = λ i -> (ρ (n + i))
 
   data CC_Kind : Set where
     cc-preKind : CC_Kind
 
-  Term = (Subst -> X) ⊎ CC_Kind
+  Term = (Subst {X} -> X) ⊎ CC_Kind
 
   instance
     EquivTerm : Equiv Term
@@ -212,12 +213,9 @@ module Construction (model : Abstract_CC_Model) where
   prop3 = base-refl
 
   -- Typing
-  -- TODO Could abstract to combine Subst above.
-  Ctx = (ℕ -> Term)
-  -- Is this right?
+  Ctx = Subst {Term}
   extend-ctx : Ctx -> Term -> Ctx
-  extend-ctx Γ x zero = x
-  extend-ctx Γ x (add1 n) = Γ n
+  extend-ctx = extend-subst
 
   _⊨_ : Ctx -> Subst -> Set
   _⊨_ Γ ρ = ∀ n -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (Γ n))
@@ -230,7 +228,7 @@ module Construction (model : Abstract_CC_Model) where
   -- This works well enough for now.
   postulate
     cempty : Ctx
-    empty : Subst
+    empty : Subst {X}
     emptyOK : cempty ⊨ empty
 
   extend-⊨ : ∀ {ρ x A Γ}->
