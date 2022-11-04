@@ -137,6 +137,9 @@ module Construction (model : Abstract_CC_Model) where
   extend-subst ρ X zero = X
   extend-subst ρ X (add1 n) = ρ n
 
+  relocate : Subst -> ℕ -> Subst
+  relocate ρ n = λ i -> (ρ (n + i))
+
   data CC_Kind : Set where
     cc-preKind : CC_Kind
 
@@ -193,7 +196,7 @@ module Construction (model : Abstract_CC_Model) where
   cc-Pi = cc-bind Pi
 
   cc-relocate : ℕ -> Term -> Term
-  cc-relocate n M = inj₁ (λ ρ -> Val M (λ i -> (ρ (n + i))))
+  cc-relocate n M = inj₁ (λ ρ -> Val M (relocate ρ n))
 
   cc-subst : Term -> Term -> Term
   cc-subst by M = inj₁ (λ ρ -> Val M (extend-subst ρ (Val by ρ)))
