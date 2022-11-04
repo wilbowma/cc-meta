@@ -2,14 +2,14 @@ open import Level using (Level; suc)
 open import Data.Nat using (ℕ; _+_; zero; _<_) renaming (suc to add1)
 open import Agda.Builtin.Equality using (_≡_) renaming
   (refl to base-refl)
-open import Relation.Binary.PropositionalEquality.Core using (cong) renaming
+open import Relation.Binary.PropositionalEquality.Core using (cong; icong) renaming
   (sym to base-sym;
    trans to base-trans;
    subst to base-subst)
 open import Data.Sum.Base
 open import Data.Unit.Base using (⊤; tt)
 open import Relation.Nullary using (¬_)
-open import Data.Empty using (⊥-elim)
+open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Product
 
 record Equiv {a} (A : Set a) : Set (suc a) where
@@ -49,6 +49,45 @@ module example where
     -- our definition requires they not be.
     sym {{EqBool}} = λ x y -> bsym {x} {y}
     trans {{EqBool}} = λ x y z -> btrans {x} {y} {z}
+
+-- A theory of binding/substitution that map variables to values in X
+record Theory-of-Binding (X : Set) : Set₁ where
+  field
+    Var : Set
+    -- {{EquivVar}} : Equiv Var
+    -- {{EquivX}} : Equiv X
+    Scope : Set
+  Subst = (Var -> X)
+  aTerm = Subst -> X
+  field
+    extend : (x : X) -> (ρ : Subst) -> Subst × Var
+    extend/apply : ∀ {x ρ} -> let (ρ' , v) = (extend x ρ) in (ρ' v) ≡ x
+    extend/skip : ∀ {x ρ v'} -> let (ρ' , v) = (extend x ρ) in (ρ' v') ≡ (ρ v')
+    --(λ ρ' -> Σ Var λ v -> (ρ' v) ≡ x × ((x : Var) -> (ρ' x) ≡ (ρ x)))
+    --extend : Subst -> Var -> X -> Subst
+    rename : Var -> Scope -> Var
+    relocate : Subst -> Scope -> Subst
+    freshen : Scope -> X
+    bind : Var -> X -> X
+    relocate/rename : ∀ {ρ s n} -> relocate ρ s n ≡ ρ (rename n s)
+    --extend/apply : ∀ {ρ x v} -> (extend ρ v x) v ≡ x
+    --extend/skip : ∀ {ρ x v1 v2} -> ¬ (v1 ≡ v2) -> (extend ρ v1 x) v2 ≡ (ρ v2)
+    --subst/α : ∀ {ρ x v1 v2 v} -> (extend ρ v1 x) ≡ (extend ρ v2 x)
+    --subst/α' : ∀ {ρ x v1 v2 v} -> ((extend ρ v1 x) v) ≡ ((extend ρ v2 x) v)
+
+module example-de-Bruijn (X : Set) where
+  open Theory-of-Binding {{...}}
+  instance
+    de-Bruijn : Theory-of-Binding X
+    Var {{de-Bruijn}} = ℕ
+    Scope {{de-Bruijn}} = ℕ
+    extend ⦃ de-Bruijn ⦄ ρ zero X zero = X
+    extend ⦃ de-Bruijn ⦄ ρ zero X (add1 v2) = (ρ (add1 v2))
+    extend ⦃ de-Bruijn ⦄ ρ (add1 v1) X zero = {!!}
+    extend ⦃ de-Bruijn ⦄ ρ (add1 v1) X (add1 v2) = {!!}
+
+    extend/apply {{de-Bruijn}} = {!!}
+    extend/skip {{de-Bruijn}} = {!!}
 
 record Abstract_CC_Model : Set₁ where
   field
@@ -127,15 +166,18 @@ record Abstract_CC_Model : Set₁ where
 -- His representation of terms is a either a function from valuations, mapping
 -- naturals to X, or Kind (representated as None).
 
-module Construction (model : Abstract_CC_Model) where
+module Construction (model : Abstract_CC_Model)
+                    (binding : Theory-of-Binding (Abstract_CC_Model.X model))
+                    where
   -- Can now freely refer to X, etc, as the parameters of an arbirary model.
   open Abstract_CC_Model (model)
+  open Theory-of-Binding (binding)
   -- A substitution
-  Subst = (ℕ -> X)
-  -- Is this right?
-  SCons : X -> Subst -> Subst
-  SCons X ρ zero = X
-  SCons X ρ (add1 n) = ρ n
+  -- Subst = (ℕ -> X)
+  -- -- Is this right?
+  -- SCons : X -> Subst -> Subst
+  -- SCons X ρ zero = X
+  -- SCons X ρ (add1 n) = ρ n
 
   data CC_Kind : Set where
     cc-preKind : CC_Kind
@@ -176,288 +218,300 @@ module Construction (model : Abstract_CC_Model) where
   -- TODO: Abstract away from de Bruijn. Bet we could do this by abstracting
   -- over representation, here ℕ, anda handful of operations.. shifting, really,
   -- is freshening with respect to a set (shifting by 1 freshens w.r.t. 0).
-  cc-var : ℕ -> Term
-  cc-var n = inj₁ (λ ρ -> ρ n)
+  cc-var : Var -> Term
+  cc-var var = inj₁ (λ ρ -> ρ var)
 
   cc-app : Term -> Term -> Term
   cc-app N M = inj₁ (λ ρ -> app (Val N ρ) (Val M ρ))
 
   -- an abstract binding-term-constructor
-  cc-bind : (X -> (X -> X) -> X) -> Term -> Term -> Term
-  cc-bind bind A B = inj₁ (λ ρ -> bind (Val A ρ) (λ x -> Val B (SCons x ρ)))
+  cc-bind : (X -> (X -> X) -> X) -> Var -> Term -> Term -> Term
+  cc-bind bind var A B = inj₁ (λ ρ -> bind (Val A ρ) (λ x -> Val B (extend ρ var x)))
 
-  cc-lam : Term -> Term -> Term
+  cc-lam : Var -> Term -> Term -> Term
   cc-lam = cc-bind lam
 
-  cc-Pi : Term -> Term -> Term
+  cc-Pi : Var -> Term -> Term -> Term
   cc-Pi = cc-bind Pi
 
-  cc-relocate : ℕ -> Term -> Term
-  cc-relocate n M = inj₁ (λ ρ -> Val M (λ i -> (ρ (i + n))))
+  --cc-relocate : ℕ -> Term -> Term
+  --cc-relocate n M = inj₁ (λ ρ -> Val M (λ i -> (ρ (i + n))))
+  cc-relocate : Scope -> Term -> Term
+  cc-relocate s M = inj₁ (λ ρ -> Val M (relocate ρ s))
 
-  cc-subst : Term -> Term -> Term
-  cc-subst by M = inj₁ (λ ρ -> Val M (SCons (Val by ρ) ρ))
+  cc-subst : Var -> Term -> Term -> Term
+  cc-subst var by M = inj₁ (λ ρ -> Val M (extend ρ var (Val by ρ)))
 
   -- compositionality properties of Val
-  prop1 : ∀ {n ρ} -> Val (cc-relocate 1 (cc-var n)) ρ ≡ (Val (cc-var (n + 1)) ρ)
-  prop1 = base-refl
+  prop1 : ∀ {s n ρ} -> Val (cc-relocate s (cc-var n)) ρ ≡ (Val (cc-var (rename n s)) ρ)
+  prop1 = Theory-of-Binding.relocate/rename binding
 
-  prop2 : ∀ {M ρ} -> Val (cc-subst M (cc-var 0)) ρ ≡ (Val M ρ)
-  prop2 = base-refl
+  prop2 : ∀ {v M ρ} -> Val (cc-subst v M (cc-var v)) ρ ≡ (Val M ρ)
+  prop2 = Theory-of-Binding.extend/apply binding
 
-  prop3 : ∀ {M ρ n} -> Val (cc-subst M (cc-var (add1 n))) ρ ≡ (Val (cc-var n) ρ)
-  prop3 = base-refl
+  prop3 : ∀ {v1 v2 M ρ} -> (¬ (v1 ≡ v2)) ->
+    Val (cc-subst v1 M (cc-var v2)) ρ ≡ (Val (cc-var v2) ρ)
+  prop3 = Theory-of-Binding.extend/skip binding
+
+  _tα≡_ : Term -> Term -> Set
+  inj₁ x tα≡ inj₁ y = ∀ ρ -> x ρ ≡ y ρ
+  inj₁ x tα≡ inj₂ y = ⊥
+  inj₂ y tα≡ inj₁ x = ⊥
+  inj₂ y tα≡ inj₂ y₁ = ⊤
+
+  eg : ∀ {v1 v2} -> (cc-lam v1 cc-Prop (cc-var v1)) tα≡ (cc-lam v2 cc-Prop (cc-var v2))
+  eg {v1} {v2} ρ = cong (λ x -> (ρ x))  subst/α
 
   -- Typing
   -- TODO: Could abstract w.r.t scope, to avoid tying to de Bruijn
-  data Ctx : {ℕ} -> Set where
-    cempty : Ctx {0}
-    snoc : ∀ {n} -> Ctx {n} -> Term -> Ctx {(add1 n)}
+  -- data Ctx : {ℕ} -> Set where
+  --   cempty : Ctx {0}
+  --   snoc : ∀ {n} -> Ctx {n} -> Term -> Ctx {(add1 n)}
 
-  lookup : ∀ {n} -> Ctx {n} -> (m : ℕ) -> m < n -> Term
-  lookup cempty n ()
-  lookup (snoc Γ x) zero p = x
-  lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
+  -- lookup : ∀ {n} -> Ctx {n} -> (m : ℕ) -> m < n -> Term
+  -- lookup cempty n ()
+  -- lookup (snoc Γ x) zero p = x
+  -- lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
 
-  _⊨_ : ∀ {m} -> Ctx {m} -> Subst -> Set
-  _⊨_ {m = m} Γ ρ = ∀ n -> (pf : n < m) -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (lookup Γ n pf))
+  -- _⊨_ : ∀ {m} -> Ctx {m} -> Subst -> Set
+  -- _⊨_ {m = m} Γ ρ = ∀ n -> (pf : n < m) -> (ρ n) ∈ ρ El (cc-relocate (add1 n) (lookup Γ n pf))
 
-  emptyOK : ∀ {ρ} -> cempty ⊨ ρ
-  emptyOK = {!!}
+  -- emptyOK : ∀ {ρ} -> cempty ⊨ ρ
+  -- emptyOK = {!!}
 
-  empty : Subst
+  -- empty : Subst
 
-  -- TODO Seems obvious; requires tedious reasoning about binding it seems.
-  extend-⊨ : ∀ {n ρ x A} {Γ : Ctx {n}}->
-    Γ ⊨ ρ ->
-    x ∈ Val A ρ ->
-    ------------------
-    snoc Γ A ⊨ SCons x ρ
-  extend-⊨ = {!!}
-
-
-  -- The typing judgment is *defined* as the Val interpretation being in El
-  _⊢_::_ : ∀ {n} -> Ctx {n} -> Term -> Term -> Set
-  Γ ⊢ M :: A = ∀ ρ -> Γ ⊨ ρ -> (Val M ρ) ∈ ρ El A
-
-
-  -- These lemmas have the same type as the type you'd give in an inductive
-  -- definition. But they're lemmas about the shallow embedding parameterized
-  -- over a model, rather than a deep embedding of the rules that could be
-  -- transformed into any particular model.
-  rule-Prop : ∀ {n} {Γ : Ctx {n}} ->
-    Γ ⊢ cc-Prop :: cc-Kind
-  -- autocompleted
-  rule-Prop = λ ρ _ → tt
-
-  rule-Var : ∀ {n m p} {Γ : Ctx {m}} ->
-    Γ ⊢ (cc-var n) :: (cc-relocate (add1 n) (lookup Γ n p))
-  -- autocompleted, but needed to add implicits
-  rule-Var {n = n} {p = p} = λ ρ z → z n p
-
-
-  rule-Lam : ∀ {n A Γ M B} ->
-    (snoc {n} Γ A) ⊢ M :: B ->
-    ¬ (B ≡ cc-Kind) ->
-    ------------------
-    Γ ⊢ (cc-lam A M) :: (cc-Pi A B)
-  rule-Lam {B = inj₁ B} = λ IH _ ρ ρvalid → Pi-I λ {x} xD → (IH (SCons x ρ) (extend-⊨ ρvalid xD))
-  rule-Lam {B = inj₂ cc-preKind} IH H = ⊥-elim (H base-refl)
-
-
-  rule-App : ∀ {n M N A B} {Γ : Ctx {n}} ->
-    Γ ⊢ M :: (cc-Pi A B) ->
-    Γ ⊢ N :: A ->
-    ¬ (A ≡ cc-Kind) ->
-    ------------------
-    Γ ⊢ (cc-app M N) :: (cc-subst N B)
-  rule-App {A = inj₁ x} IH1 IH2 H ρ ρvalid = Pi-E (IH1 ρ ρvalid) (IH2 ρ ρvalid)
-  rule-App {A = inj₂ cc-preKind} IH1 IH2 H ρ ρvalid = ⊥-elim (H base-refl)
-
-  -- Missing conv, other judgments... lets try structure consistency
-
-  cc-False : Term
-  cc-False = cc-Pi cc-Prop (cc-var 0)
-
-  Consistency : ∀ M F ->
-    -- if there exists an empty term in the model
-    F ∈ props -> (∀ x -> ¬ (x ∈ F)) ->
-    -- there is no closed proof of cc-False
-    ¬ (cempty ⊢ M :: cc-False)
-  Consistency M F False-∈-empty False-empty False-well-typed =
-    ⊥-elim ((False-empty (app (Val M empty) F)) (Pi-E (False-well-typed empty (λ n ())) False-∈-empty))
-
-  -- Consistency... holds. even without all the judgments defined.
-  -- But we've yet to prove that this construction is sound, in the sense that
-  -- it implements all of CCs typing rules.
-  -- We also haven't proved that there exists any instances of this model.
-
-
--- This approach.. seems hhard. need to specify some kind of environment
--- passing syntax.... starts to deviate from Bruno's approach
-
--- -- Here's a a deep embedding approach, I think, whereas Bruno follows a
--- -- shallow embedding approach here.
--- -- This means that, for Bruno, the definition of each term is defining Val, but
--- -- I have to define Val by induction over syntax.
--- data CC_Term : Set where
---   cc-Prop : CC_Term
---   var : ℕ -> CC_Term
---   cc-app : CC_Term -> CC_Term -> CC_Term
---   cc-lam : CC_Term -> CC_Term -> CC_Term
---   cc-Pi : CC_Term -> CC_Term -> CC_Term
---   -- TODO:
---   -- Looks like the syntax, Figure 5.2, includes explicit syntax for subst and
---   -- relocation. Need to add those
---   relocate : (by : ℕ) -> (term : CC_Term) -> CC_Term
---   subst : (by : CC_Term) -> (M : CC_Term) -> CC_Term
---
--- -- CC Types also include "Kind".
--- -- Represent the syntax of types as either a term or Kind.
--- -- This seems to be used to avoid including Kind in the term syntax, and thus
--- -- trivially make Val total.
--- -- ... at the expense of making El complicated.
--- -- Also, doesn't work for higher universes?
--- data CC_Kind : Set where
---   cc-preKind : CC_Kind
---
--- CC_Type : Set
--- CC_Type = CC_Term ⊎ CC_Kind
---
--- cc-Kind : CC_Type
--- cc-Kind = inj₂ cc-preKind
---
--- data Ctx : ℕ -> Set where
---   cempty : Ctx 0
---   snoc : ∀ {n} -> Ctx n -> CC_Term -> Ctx (add1 n)
---
--- lookup : ∀ {n} -> Ctx n -> (m : ℕ) -> m < n -> CC_Term
--- lookup cempty n ()
--- lookup (snoc Γ x) zero p = x
--- lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
---
--- data _⊢_::_ : ∀ {n} -> Ctx n -> CC_Term -> CC_Type -> Set where
---   rule-Prop : ∀ {n} {Γ : Ctx n} -> Γ ⊢ cc-Prop :: cc-Kind
---   rule-Var : ∀ {n m p A} {Γ : Ctx m} ->
---     (lookup Γ n p) ≡ A ->
+--   -- TODO Seems obvious; requires tedious reasoning about binding it seems.
+--   extend-⊨ : ∀ {n ρ x A} {Γ : Ctx {n}}->
+--     Γ ⊨ ρ ->
+--     x ∈ Val A ρ ->
 --     ------------------
---     Γ ⊢ (var n) :: (inj₁ (relocate (n + 1) A))
+--     snoc Γ A ⊨ SCons x ρ
+--   extend-⊨ = {!!}
+--
+--
+--   -- The typing judgment is *defined* as the Val interpretation being in El
+--   _⊢_::_ : ∀ {n} -> Ctx {n} -> Term -> Term -> Set
+--   Γ ⊢ M :: A = ∀ ρ -> Γ ⊨ ρ -> (Val M ρ) ∈ ρ El A
+--
+--
+--   -- These lemmas have the same type as the type you'd give in an inductive
+--   -- definition. But they're lemmas about the shallow embedding parameterized
+--   -- over a model, rather than a deep embedding of the rules that could be
+--   -- transformed into any particular model.
+--   rule-Prop : ∀ {n} {Γ : Ctx {n}} ->
+--     Γ ⊢ cc-Prop :: cc-Kind
+--   -- autocompleted
+--   rule-Prop = λ ρ _ → tt
+--
+--   rule-Var : ∀ {n m p} {Γ : Ctx {m}} ->
+--     Γ ⊢ (cc-var n) :: (cc-relocate (add1 n) (lookup Γ n p))
+--   -- autocompleted, but needed to add implicits
+--   rule-Var {n = n} {p = p} = λ ρ z → z n p
+--
 --
 --   rule-Lam : ∀ {n A Γ M B} ->
---     (snoc {n} Γ A) ⊢ M :: (inj₁ B) ->
---     -- implicit
---     -- ¬ (B ≡ cc-Kind) ->
+--     (snoc {n} Γ A) ⊢ M :: B ->
+--     ¬ (B ≡ cc-Kind) ->
 --     ------------------
---     Γ ⊢ (cc-lam A M) :: (inj₁ (cc-Pi A B))
+--     Γ ⊢ (cc-lam A M) :: (cc-Pi A B)
+--   rule-Lam {B = inj₁ B} = λ IH _ ρ ρvalid → Pi-I λ {x} xD → (IH (SCons x ρ) (extend-⊨ ρvalid xD))
+--   rule-Lam {B = inj₂ cc-preKind} IH H = ⊥-elim (H base-refl)
 --
---   rule-App : ∀ {Γ M N A B} ->
---     Γ ⊢ M :: (inj₁ (cc-Pi A B)) ->
---     Γ ⊢ N :: (inj₁ A) ->
+--
+--   rule-App : ∀ {n M N A B} {Γ : Ctx {n}} ->
+--     Γ ⊢ M :: (cc-Pi A B) ->
+--     Γ ⊢ N :: A ->
+--     ¬ (A ≡ cc-Kind) ->
 --     ------------------
---     Γ ⊢ (cc-app M N) :: (inj₁ (subst N B))
+--     Γ ⊢ (cc-app M N) :: (cc-subst N B)
+--   rule-App {A = inj₁ x} IH1 IH2 H ρ ρvalid = Pi-E (IH1 ρ ρvalid) (IH2 ρ ρvalid)
+--   rule-App {A = inj₂ cc-preKind} IH1 IH2 H ρ ρvalid = ⊥-elim (H base-refl)
 --
--- -------
--- -- A particular model exists.
--- -- In Bruno's thesis, he defines set theory, then instantiates X to be set
--- -- (small set, not Coq's Set).
--- -- I guess I could do that, if I wanted to formalize set theory?
--- -- I'd need only some of the axioms, I think...
+--   -- Missing conv, other judgments... lets try structure consistency
 --
--- -- I'm going to construct the initial model: instantiate the abstract model with
--- -- the syntax.
+--   cc-False : Term
+--   cc-False = cc-Pi cc-Prop (cc-var 0)
 --
--- module initial_cc_model where
---   open Abstract_CC_Model {{...}}
---   instance
---     EquivCC_Term : Equiv CC_Term
---     _==_ {{EquivCC_Term}} = _≡_
---     refl {{EquivCC_Term}} = λ x -> base-refl {x = x}
---     sym {{EquivCC_Term}} = λ x y -> base-sym {x = x} {y = y}
---     trans {{EquivCC_Term}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+--   Consistency : ∀ M F ->
+--     -- if there exists an empty term in the model
+--     F ∈ props -> (∀ x -> ¬ (x ∈ F)) ->
+--     -- there is no closed proof of cc-False
+--     ¬ (cempty ⊢ M :: cc-False)
+--   Consistency M F False-∈-empty False-empty False-well-typed =
+--     ⊥-elim ((False-empty (app (Val M empty) F)) (Pi-E (False-well-typed empty (λ n ())) False-∈-empty))
 --
---   instance
---     EquivCC_Type : Equiv CC_Type
---     _==_ {{EquivCC_Type}} = _≡_
---     refl {{EquivCC_Type}} = λ x -> base-refl {x = x}
---     sym {{EquivCC_Type}} = λ x y -> base-sym {x = x} {y = y}
---     trans {{EquivCC_Type}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
---
---   record Scoped_Syntax : Set where
---     constructor make-syn
---     field
---       n : ℕ
---       Γ : Ctx n
---       t : CC_Term
---
---   instance
---       EquivSyn : Equiv Scoped_Syntax
---       _==_ {{EquivSyn}} = _≡_
---       refl {{EquivSyn}} = λ x -> base-refl {x = x}
---       sym {{EquivSyn}} = λ x y -> base-sym {x = x} {y = y}
---       trans {{EquivSyn}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
---
---   instance
---     InitialCC : Abstract_CC_Model
---     -- Think this can't work... because ∈ needs to be a relation between Xs, and
---     -- ∈ needs to be _⊢_::_, which is a relation between CC_Type and CC_Type...
---     -- soo.. something needs to change.
---     -- Probably need to use CC_Type, and somehow change the interface of the
---     -- rules? But that requires matching on them, or some disequality constraint
---     -- that's not satisfiable.. ah, no wait it is, because if we have a
---     -- subderivation, then we know the CC_Type is a CC_Term.
---     X {{InitialCC}} = Scoped_Syntax
---     props {{InitialCC}} = make-syn 0 cempty cc-Prop
---     _∈_ {{InitialCC}} A B = Σ (Scoped_Syntax.n A ≡ Scoped_Syntax.n B)
---       (λ {base-refl -> ((Scoped_Syntax.Γ A ≡ Scoped_Syntax.Γ B)) ×
---                Scoped_Syntax.Γ A ⊢ Scoped_Syntax.t A :: inj₁ (Scoped_Syntax.t B)})
---     -- Ahhh; distinction between open term in the syntax and closed terms in the model.
---     -- Okay, I guess.. reflect, in NbE terms?. Apply the function to the 0th
---     -- variable. Do we need to relocate?
---     lam {{InitialCC}} = λ A f -> make-syn (add1 (Scoped_Syntax.n A)) {!!} (cc-lam (Scoped_Syntax.t A) ({!!} (f ({!!} (var 0)))))
---     app {{InitialCC}} = {!!} cc-app
---     Pi {{InitialCC}} = λ A F -> {!!} cc-Pi A (F (var 0))
---     Pi-I {{InitialCC}} {A} {f} {F} dF = {!!} rule-Lam {!!}
+--   -- Consistency... holds. even without all the judgments defined.
+--   -- But we've yet to prove that this construction is sound, in the sense that
+--   -- it implements all of CCs typing rules.
+--   -- We also haven't proved that there exists any instances of this model.
 --
 --
--- module Deep_Construction (model : Abstract_CC_Model) where
---   -- Can now freely refer to X, etc, as the parameters of an arbirary model.
---   open Abstract_CC_Model (model)
---   -- A substitution
---   Subst = (ℕ -> X)
---   -- Is this right?
---   SCons : X -> Subst -> Subst
---   SCons X ρ zero = X
---   SCons X ρ (add1 n) = ρ n
---   -- The value interpretation of CC Syntax into some CC Model
---   Val : CC_Term -> Subst -> X
---   Val cc-Prop ρ = props
---   Val (var x) ρ = ρ x
---   Val (cc-app M N) ρ = app (Val M ρ) (Val N ρ)
---   Val (cc-lam A M) ρ = lam (Val A ρ) (λ x -> (Val M) (SCons x ρ))
---   Val (cc-Pi A B) ρ = Pi (Val A ρ) (λ x -> (Val B) (SCons x ρ))
---   Val (relocate n M) ρ = Val M (λ i -> (ρ (i + n)))
---   Val (subst by M) ρ = Val M (SCons (Val by ρ) ρ)
+-- -- This approach.. seems hhard. need to specify some kind of environment
+-- -- passing syntax.... starts to deviate from Bruno's approach
 --
---   -- compositionality properties of Val
---   prop1 : ∀ {n ρ} -> Val (relocate 1 (var n)) ρ ≡ (Val (var (n + 1)) ρ)
---   prop1 = base-refl
---
---   prop2 : ∀ {M ρ} -> Val (subst M (var 0)) ρ ≡ (Val M ρ)
---   prop2 = base-refl
---
---   prop3 : ∀ {M ρ n} -> Val (subst M (var (add1 n))) ρ ≡ (Val (var n) ρ)
---   prop3 = base-refl
---
---   El : (T : CC_Type) -> Subst -> X ⊎ (T ≡ cc-Kind)
---   El (inj₂ cc-preKind) ρ = inj₂ base-refl
---   El (inj₁ x) ρ = inj₁ (Val x ρ)
---
---   -- A different way of writing El, which might be easier to read and write.
---   _∈_EL_ : X -> Subst -> CC_Type -> Set
---   x ∈ ρ EL (inj₂ cc-preKind) = ⊤
---   x ∈ ρ EL (inj₁ A) = (x ≡ Val A ρ)
---
---   empty : Subst
---
---   example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty EL cc-Kind
---   example1 = tt
+-- -- -- Here's a a deep embedding approach, I think, whereas Bruno follows a
+-- -- -- shallow embedding approach here.
+-- -- -- This means that, for Bruno, the definition of each term is defining Val, but
+-- -- -- I have to define Val by induction over syntax.
+-- -- data CC_Term : Set where
+-- --   cc-Prop : CC_Term
+-- --   var : ℕ -> CC_Term
+-- --   cc-app : CC_Term -> CC_Term -> CC_Term
+-- --   cc-lam : CC_Term -> CC_Term -> CC_Term
+-- --   cc-Pi : CC_Term -> CC_Term -> CC_Term
+-- --   -- TODO:
+-- --   -- Looks like the syntax, Figure 5.2, includes explicit syntax for subst and
+-- --   -- relocation. Need to add those
+-- --   relocate : (by : ℕ) -> (term : CC_Term) -> CC_Term
+-- --   subst : (by : CC_Term) -> (M : CC_Term) -> CC_Term
+-- --
+-- -- -- CC Types also include "Kind".
+-- -- -- Represent the syntax of types as either a term or Kind.
+-- -- -- This seems to be used to avoid including Kind in the term syntax, and thus
+-- -- -- trivially make Val total.
+-- -- -- ... at the expense of making El complicated.
+-- -- -- Also, doesn't work for higher universes?
+-- -- data CC_Kind : Set where
+-- --   cc-preKind : CC_Kind
+-- --
+-- -- CC_Type : Set
+-- -- CC_Type = CC_Term ⊎ CC_Kind
+-- --
+-- -- cc-Kind : CC_Type
+-- -- cc-Kind = inj₂ cc-preKind
+-- --
+-- -- data Ctx : ℕ -> Set where
+-- --   cempty : Ctx 0
+-- --   snoc : ∀ {n} -> Ctx n -> CC_Term -> Ctx (add1 n)
+-- --
+-- -- lookup : ∀ {n} -> Ctx n -> (m : ℕ) -> m < n -> CC_Term
+-- -- lookup cempty n ()
+-- -- lookup (snoc Γ x) zero p = x
+-- -- lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
+-- --
+-- -- data _⊢_::_ : ∀ {n} -> Ctx n -> CC_Term -> CC_Type -> Set where
+-- --   rule-Prop : ∀ {n} {Γ : Ctx n} -> Γ ⊢ cc-Prop :: cc-Kind
+-- --   rule-Var : ∀ {n m p A} {Γ : Ctx m} ->
+-- --     (lookup Γ n p) ≡ A ->
+-- --     ------------------
+-- --     Γ ⊢ (var n) :: (inj₁ (relocate (n + 1) A))
+-- --
+-- --   rule-Lam : ∀ {n A Γ M B} ->
+-- --     (snoc {n} Γ A) ⊢ M :: (inj₁ B) ->
+-- --     -- implicit
+-- --     -- ¬ (B ≡ cc-Kind) ->
+-- --     ------------------
+-- --     Γ ⊢ (cc-lam A M) :: (inj₁ (cc-Pi A B))
+-- --
+-- --   rule-App : ∀ {Γ M N A B} ->
+-- --     Γ ⊢ M :: (inj₁ (cc-Pi A B)) ->
+-- --     Γ ⊢ N :: (inj₁ A) ->
+-- --     ------------------
+-- --     Γ ⊢ (cc-app M N) :: (inj₁ (subst N B))
+-- --
+-- -- -------
+-- -- -- A particular model exists.
+-- -- -- In Bruno's thesis, he defines set theory, then instantiates X to be set
+-- -- -- (small set, not Coq's Set).
+-- -- -- I guess I could do that, if I wanted to formalize set theory?
+-- -- -- I'd need only some of the axioms, I think...
+-- --
+-- -- -- I'm going to construct the initial model: instantiate the abstract model with
+-- -- -- the syntax.
+-- --
+-- -- module initial_cc_model where
+-- --   open Abstract_CC_Model {{...}}
+-- --   instance
+-- --     EquivCC_Term : Equiv CC_Term
+-- --     _==_ {{EquivCC_Term}} = _≡_
+-- --     refl {{EquivCC_Term}} = λ x -> base-refl {x = x}
+-- --     sym {{EquivCC_Term}} = λ x y -> base-sym {x = x} {y = y}
+-- --     trans {{EquivCC_Term}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+-- --
+-- --   instance
+-- --     EquivCC_Type : Equiv CC_Type
+-- --     _==_ {{EquivCC_Type}} = _≡_
+-- --     refl {{EquivCC_Type}} = λ x -> base-refl {x = x}
+-- --     sym {{EquivCC_Type}} = λ x y -> base-sym {x = x} {y = y}
+-- --     trans {{EquivCC_Type}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+-- --
+-- --   record Scoped_Syntax : Set where
+-- --     constructor make-syn
+-- --     field
+-- --       n : ℕ
+-- --       Γ : Ctx n
+-- --       t : CC_Term
+-- --
+-- --   instance
+-- --       EquivSyn : Equiv Scoped_Syntax
+-- --       _==_ {{EquivSyn}} = _≡_
+-- --       refl {{EquivSyn}} = λ x -> base-refl {x = x}
+-- --       sym {{EquivSyn}} = λ x y -> base-sym {x = x} {y = y}
+-- --       trans {{EquivSyn}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+-- --
+-- --   instance
+-- --     InitialCC : Abstract_CC_Model
+-- --     -- Think this can't work... because ∈ needs to be a relation between Xs, and
+-- --     -- ∈ needs to be _⊢_::_, which is a relation between CC_Type and CC_Type...
+-- --     -- soo.. something needs to change.
+-- --     -- Probably need to use CC_Type, and somehow change the interface of the
+-- --     -- rules? But that requires matching on them, or some disequality constraint
+-- --     -- that's not satisfiable.. ah, no wait it is, because if we have a
+-- --     -- subderivation, then we know the CC_Type is a CC_Term.
+-- --     X {{InitialCC}} = Scoped_Syntax
+-- --     props {{InitialCC}} = make-syn 0 cempty cc-Prop
+-- --     _∈_ {{InitialCC}} A B = Σ (Scoped_Syntax.n A ≡ Scoped_Syntax.n B)
+-- --       (λ {base-refl -> ((Scoped_Syntax.Γ A ≡ Scoped_Syntax.Γ B)) ×
+-- --                Scoped_Syntax.Γ A ⊢ Scoped_Syntax.t A :: inj₁ (Scoped_Syntax.t B)})
+-- --     -- Ahhh; distinction between open term in the syntax and closed terms in the model.
+-- --     -- Okay, I guess.. reflect, in NbE terms?. Apply the function to the 0th
+-- --     -- variable. Do we need to relocate?
+-- --     lam {{InitialCC}} = λ A f -> make-syn (add1 (Scoped_Syntax.n A)) {!!} (cc-lam (Scoped_Syntax.t A) ({!!} (f ({!!} (var 0)))))
+-- --     app {{InitialCC}} = {!!} cc-app
+-- --     Pi {{InitialCC}} = λ A F -> {!!} cc-Pi A (F (var 0))
+-- --     Pi-I {{InitialCC}} {A} {f} {F} dF = {!!} rule-Lam {!!}
+-- --
+-- --
+-- -- module Deep_Construction (model : Abstract_CC_Model) where
+-- --   -- Can now freely refer to X, etc, as the parameters of an arbirary model.
+-- --   open Abstract_CC_Model (model)
+-- --   -- A substitution
+-- --   Subst = (ℕ -> X)
+-- --   -- Is this right?
+-- --   SCons : X -> Subst -> Subst
+-- --   SCons X ρ zero = X
+-- --   SCons X ρ (add1 n) = ρ n
+-- --   -- The value interpretation of CC Syntax into some CC Model
+-- --   Val : CC_Term -> Subst -> X
+-- --   Val cc-Prop ρ = props
+-- --   Val (var x) ρ = ρ x
+-- --   Val (cc-app M N) ρ = app (Val M ρ) (Val N ρ)
+-- --   Val (cc-lam A M) ρ = lam (Val A ρ) (λ x -> (Val M) (SCons x ρ))
+-- --   Val (cc-Pi A B) ρ = Pi (Val A ρ) (λ x -> (Val B) (SCons x ρ))
+-- --   Val (relocate n M) ρ = Val M (λ i -> (ρ (i + n)))
+-- --   Val (subst by M) ρ = Val M (SCons (Val by ρ) ρ)
+-- --
+-- --   -- compositionality properties of Val
+-- --   prop1 : ∀ {n ρ} -> Val (relocate 1 (var n)) ρ ≡ (Val (var (n + 1)) ρ)
+-- --   prop1 = base-refl
+-- --
+-- --   prop2 : ∀ {M ρ} -> Val (subst M (var 0)) ρ ≡ (Val M ρ)
+-- --   prop2 = base-refl
+-- --
+-- --   prop3 : ∀ {M ρ n} -> Val (subst M (var (add1 n))) ρ ≡ (Val (var n) ρ)
+-- --   prop3 = base-refl
+-- --
+-- --   El : (T : CC_Type) -> Subst -> X ⊎ (T ≡ cc-Kind)
+-- --   El (inj₂ cc-preKind) ρ = inj₂ base-refl
+-- --   El (inj₁ x) ρ = inj₁ (Val x ρ)
+-- --
+-- --   -- A different way of writing El, which might be easier to read and write.
+-- --   _∈_EL_ : X -> Subst -> CC_Type -> Set
+-- --   x ∈ ρ EL (inj₂ cc-preKind) = ⊤
+-- --   x ∈ ρ EL (inj₁ A) = (x ≡ Val A ρ)
+-- --
+-- --   empty : Subst
+-- --
+-- --   example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty EL cc-Kind
+-- --   example1 = tt
