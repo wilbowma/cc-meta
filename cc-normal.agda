@@ -127,19 +127,20 @@ record Abstract_CC_Model : Set₁ where
 -- His representation of terms is a either a function from valuations, mapping
 -- naturals to X, or Kind (representated as None).
 
+-- A substitution
+Subst : {Set} -> Set
+Subst {X} = (ℕ -> X)
+-- Is this right?
+extend-subst : ∀ {X} -> Subst {X} -> X -> Subst {X}
+extend-subst ρ X zero = X
+extend-subst ρ X (add1 n) = ρ n
+
+relocate : ∀ {X} -> Subst {X} -> ℕ -> Subst {X}
+relocate ρ n = λ i -> (ρ (n + i))
+
 module Construction (model : Abstract_CC_Model) where
   -- Can now freely refer to X, etc, as the parameters of an arbirary model.
   open Abstract_CC_Model (model)
-  -- A substitution
-  Subst : {Set} -> Set
-  Subst {X} = (ℕ -> X)
-  -- Is this right?
-  extend-subst : ∀ {X} -> Subst {X} -> X -> Subst {X}
-  extend-subst ρ X zero = X
-  extend-subst ρ X (add1 n) = ρ n
-
-  relocate : ∀ {X} -> Subst {X} -> ℕ -> Subst {X}
-  relocate ρ n = λ i -> (ρ (n + i))
 
   data CC_Kind : Set where
     cc-preKind : CC_Kind
@@ -293,131 +294,83 @@ module Construction (model : Abstract_CC_Model) where
   -- it implements all of CCs typing rules.
   -- We also haven't proved that there exists any instances of this model.
 
+-- A particular model exists.
+-- In Bruno's thesis, he defines set theory, then instantiates X to be set
+-- (small set, not Coq's Set).
+-- I guess I could do that, if I wanted to formalize set theory?
+-- I'd need only some of the axioms, I think...
 
--- This approach.. seems hhard. need to specify some kind of environment
--- passing syntax.... starts to deviate from Bruno's approach
 
--- -- Here's a a deep embedding approach, I think, whereas Bruno follows a
--- -- shallow embedding approach here.
--- -- This means that, for Bruno, the definition of each term is defining Val, but
--- -- I have to define Val by induction over syntax.
--- data CC_Term : Set where
---   cc-Prop : CC_Term
---   var : ℕ -> CC_Term
---   cc-app : CC_Term -> CC_Term -> CC_Term
---   cc-lam : CC_Term -> CC_Term -> CC_Term
---   cc-Pi : CC_Term -> CC_Term -> CC_Term
---   -- TODO:
---   -- Looks like the syntax, Figure 5.2, includes explicit syntax for subst and
---   -- relocation. Need to add those
---   relocate : (by : ℕ) -> (term : CC_Term) -> CC_Term
---   subst : (by : CC_Term) -> (M : CC_Term) -> CC_Term
---
--- -- CC Types also include "Kind".
--- -- Represent the syntax of types as either a term or Kind.
--- -- This seems to be used to avoid including Kind in the term syntax, and thus
--- -- trivially make Val total.
--- -- ... at the expense of making El complicated.
--- -- Also, doesn't work for higher universes?
--- data CC_Kind : Set where
---   cc-preKind : CC_Kind
---
--- CC_Type : Set
--- CC_Type = CC_Term ⊎ CC_Kind
---
--- cc-Kind : CC_Type
--- cc-Kind = inj₂ cc-preKind
---
--- data Ctx : ℕ -> Set where
---   cempty : Ctx 0
---   snoc : ∀ {n} -> Ctx n -> CC_Term -> Ctx (add1 n)
---
--- lookup : ∀ {n} -> Ctx n -> (m : ℕ) -> m < n -> CC_Term
--- lookup cempty n ()
--- lookup (snoc Γ x) zero p = x
--- lookup (snoc Γ x) (add1 n) (Data.Nat.s≤s p) = (lookup Γ n p)
---
--- data _⊢_::_ : ∀ {n} -> Ctx n -> CC_Term -> CC_Type -> Set where
---   rule-Prop : ∀ {n} {Γ : Ctx n} -> Γ ⊢ cc-Prop :: cc-Kind
---   rule-Var : ∀ {n m p A} {Γ : Ctx m} ->
---     (lookup Γ n p) ≡ A ->
+-- Here's a a deep embedding approach.
+data CC_Term' : Set where
+  cc-Prop' : CC_Term'
+  cc-Kind' : CC_Term'
+  cc-app' : CC_Term' -> CC_Term' -> CC_Term'
+  cc-lam' : CC_Term' -> CC_Term' -> CC_Term'
+  cc-Pi' : CC_Term' -> CC_Term' -> CC_Term'
+  cc-var' : ℕ -> CC_Term'
+  cc-relocate' : ℕ -> CC_Term' -> CC_Term'
+  cc-subst : CC_Term' -> CC_Term' -> CC_Term'
+
+empty : ℕ -> CC_Term'
+Ctx = Subst {CC_Term'}
+
+data _⊢'_::_ : Ctx -> CC_Term' -> CC_Term' -> Set where
+  rule-Prop' : ∀ ρ -> ρ ⊢' cc-Prop' :: cc-Kind'
+
+--   rule-Lam : ∀ {A M B} ->
+--     (∀ N -> ⊢' N :: A ->
+--     ¬ ((B N) ≡ cc-Kind') ->
+--     ⊢' (M N) :: (B N)) ->
 --     ------------------
---     Γ ⊢ (var n) :: (inj₁ (relocate (n + 1) A))
---
---   rule-Lam : ∀ {n A Γ M B} ->
---     (snoc {n} Γ A) ⊢ M :: (inj₁ B) ->
---     -- implicit
---     -- ¬ (B ≡ cc-Kind) ->
---     ------------------
---     Γ ⊢ (cc-lam A M) :: (inj₁ (cc-Pi A B))
---
---   rule-App : ∀ {Γ M N A B} ->
---     Γ ⊢ M :: (inj₁ (cc-Pi A B)) ->
---     Γ ⊢ N :: (inj₁ A) ->
---     ------------------
---     Γ ⊢ (cc-app M N) :: (inj₁ (subst N B))
---
--- -------
--- -- A particular model exists.
--- -- In Bruno's thesis, he defines set theory, then instantiates X to be set
--- -- (small set, not Coq's Set).
--- -- I guess I could do that, if I wanted to formalize set theory?
--- -- I'd need only some of the axioms, I think...
---
--- -- I'm going to construct the initial model: instantiate the abstract model with
--- -- the syntax.
---
--- module initial_cc_model where
---   open Abstract_CC_Model {{...}}
---   instance
---     EquivCC_Term : Equiv CC_Term
---     _==_ {{EquivCC_Term}} = _≡_
---     refl {{EquivCC_Term}} = λ x -> base-refl {x = x}
---     sym {{EquivCC_Term}} = λ x y -> base-sym {x = x} {y = y}
---     trans {{EquivCC_Term}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
---
---   instance
---     EquivCC_Type : Equiv CC_Type
---     _==_ {{EquivCC_Type}} = _≡_
---     refl {{EquivCC_Type}} = λ x -> base-refl {x = x}
---     sym {{EquivCC_Type}} = λ x y -> base-sym {x = x} {y = y}
---     trans {{EquivCC_Type}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
---
---   record Scoped_Syntax : Set where
---     constructor make-syn
---     field
---       n : ℕ
---       Γ : Ctx n
---       t : CC_Term
---
---   instance
---       EquivSyn : Equiv Scoped_Syntax
---       _==_ {{EquivSyn}} = _≡_
---       refl {{EquivSyn}} = λ x -> base-refl {x = x}
---       sym {{EquivSyn}} = λ x y -> base-sym {x = x} {y = y}
---       trans {{EquivSyn}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
---
---   instance
---     InitialCC : Abstract_CC_Model
---     -- Think this can't work... because ∈ needs to be a relation between Xs, and
---     -- ∈ needs to be _⊢_::_, which is a relation between CC_Type and CC_Type...
---     -- soo.. something needs to change.
---     -- Probably need to use CC_Type, and somehow change the interface of the
---     -- rules? But that requires matching on them, or some disequality constraint
---     -- that's not satisfiable.. ah, no wait it is, because if we have a
---     -- subderivation, then we know the CC_Type is a CC_Term.
---     X {{InitialCC}} = Scoped_Syntax
---     props {{InitialCC}} = make-syn 0 cempty cc-Prop
---     _∈_ {{InitialCC}} A B = Σ (Scoped_Syntax.n A ≡ Scoped_Syntax.n B)
---       (λ {base-refl -> ((Scoped_Syntax.Γ A ≡ Scoped_Syntax.Γ B)) ×
---                Scoped_Syntax.Γ A ⊢ Scoped_Syntax.t A :: inj₁ (Scoped_Syntax.t B)})
---     -- Ahhh; distinction between open term in the syntax and closed terms in the model.
---     -- Okay, I guess.. reflect, in NbE terms?. Apply the function to the 0th
---     -- variable. Do we need to relocate?
---     lam {{InitialCC}} = λ A f -> make-syn (add1 (Scoped_Syntax.n A)) {!!} (cc-lam (Scoped_Syntax.t A) ({!!} (f ({!!} (var 0)))))
---     app {{InitialCC}} = {!!} cc-app
---     Pi {{InitialCC}} = λ A F -> {!!} cc-Pi A (F (var 0))
---     Pi-I {{InitialCC}} {A} {f} {F} dF = {!!} rule-Lam {!!}
+--     ⊢' (cc-lam' A M) :: (cc-Pi' A B)
+
+ -- rule-App : ∀ {Γ M N A B} ->
+ --   Γ ⊢ M :: (inj₁ (cc-Pi A B)) ->
+ --   Γ ⊢ N :: (inj₁ A) ->
+ --   ------------------
+ --   Γ ⊢ (cc-app M N) :: (inj₁ (subst N B))
+
+_⊨'_ : Ctx -> Ctx -> Set
+
+subst-append : Ctx -> Ctx -> Ctx
+subst-length : Ctx -> ℕ
+extend-ctx = extend-subst {CC_Term'}
+
+module initial_cc_model where
+  open Abstract_CC_Model {{...}}
+  -- instance
+  --   EquivCC_Term : Equiv CC_Term'
+  --   _==_ {{EquivCC_Term}} = _≡_
+  --   refl {{EquivCC_Term}} = λ x -> base-refl {x = x}
+  --   sym {{EquivCC_Term}} = λ x y -> base-sym {x = x} {y = y}
+  --   trans {{EquivCC_Term}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+
+  record Clos : Set where
+    constructor make-Clos
+    field
+      term : CC_Term'
+      env : Ctx
+
+  instance
+    EquivClos : Equiv Clos
+    _==_ {{EquivClos}} = _≡_
+    refl {{EquivClos}} = λ x -> base-refl {x = x}
+    sym {{EquivClos}} = λ x y -> base-sym {x = x} {y = y}
+    trans {{EquivClos}} = λ x y z -> base-trans {i = x} {j = y} {k = z}
+
+
+  instance
+    InitialCC : Abstract_CC_Model
+    X {{InitialCC}} = Clos
+    props {{InitialCC}} = (make-Clos cc-Prop' empty)
+    _∈_ {{InitialCC}} A B = (subst-append (Clos.env B) (Clos.env A)) ⊢' (Clos.term A) :: (cc-relocate' (subst-length (Clos.env A)) (Clos.term B))
+    lam {{InitialCC}} A M = (make-Clos
+      (cc-lam' (Clos.term A) (Clos.term (M (make-Clos (cc-var' 0) (extend-ctx (Clos.env A) (Clos.term A))))))
+      (subst-append ({!!} (Clos.env M)) (Clos.env A)))
+    app {{InitialCC}} = {!!}
+    Pi {{InitialCC}} A B = {!!} -- cc-Pi' A (B (cc-var' 0))
+    Pi-I {{InitialCC}} {A} {f} {F} dF = {!!}
 --
 --
 -- module Deep_Construction (model : Abstract_CC_Model) where
@@ -462,3 +415,6 @@ module Construction (model : Abstract_CC_Model) where
 --
 --   example1 : {{SomeModel : Abstract_CC_Model}} -> (Val cc-Prop empty) ∈ empty EL cc-Kind
 --   example1 = tt
+
+-- This approach.. seems hhard. need to specify some kind of environment
+-- passing syntax.... starts to deviate from Bruno's approach
