@@ -266,7 +266,6 @@ module Construction (model : Abstract_CC_Model) where
   rule-Lam {B = inj₁ B} = λ IH _ ρ ρvalid → Pi-I λ {x} xD → (IH (extend-subst ρ x) (extend-⊨ ρvalid xD))
   rule-Lam {B = inj₂ cc-preKind} IH H = ⊥-elim (H base-refl)
 
-
   rule-App : ∀ {M N A B Γ} ->
     Γ ⊢ M :: (cc-Pi A B) ->
     Γ ⊢ N :: A ->
@@ -281,12 +280,13 @@ module Construction (model : Abstract_CC_Model) where
   cc-False : Term
   cc-False = cc-Pi cc-Prop (cc-var 0)
 
-  Consistency : ∀ M F ->
+  -- depends on the existence of an empty semantic props
+  Consistency : ∀ F ->
     -- if there exists an empty term in the model
     F ∈ props -> (∀ x -> ¬ (x ∈ F)) ->
     -- there is no closed proof of cc-False
-    ¬ (cempty ⊢ M :: cc-False)
-  Consistency M F False-∈-empty False-empty False-well-typed =
+    ∀ M -> ¬ (cempty ⊢ M :: cc-False)
+  Consistency F False-∈-empty False-empty M False-well-typed =
     ⊥-elim ((False-empty (app (Val M empty) F)) (Pi-E (False-well-typed empty emptyOK) False-∈-empty))
 
   -- Consistency... holds. even without all the judgments defined.
